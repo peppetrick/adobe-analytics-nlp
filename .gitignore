@@ -1,0 +1,57 @@
+# Dependencies
+node_modules/
+package-lock.json
+yarn.lock
+
+# Environment variables
+.env
+.env.local
+.env.production
+.env.development
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# SSL Certificates
+certs/
+*.pem
+*.key
+*.crt
+
+# OS Files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Cache
+.cache/
+.npm/
+.eslintcache
+
+# Build
+dist/
+build/
+tmp/
+
+# User uploads
+uploads/
+temp/
+
+# Testing
+coverage/
+.nyc_output/
+
+# Configuration files with sensitive data
+config/*.local.json
+config/production.json

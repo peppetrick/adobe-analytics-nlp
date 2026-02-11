@@ -1,0 +1,498 @@
+{
+  "metrics": [
+    {
+      "id": "metrics/visits",
+      "name": "Visite",
+      "description": "Numero totale di sessioni utente sul sito. Una visita inizia quando un utente accede al sito e termina dopo 30 minuti di inattività o alla mezzanotte. Include sia traffico nuovo che di ritorno, escludendo i bot identificati dal sistema."
+    },
+    {
+      "id": "metrics/pageviews",
+      "name": "Visualizzazioni Pagina",
+      "description": "Conteggio totale delle pagine visualizzate dagli utenti. Include le visualizzazioni ripetute della stessa pagina. Ogni caricamento completo di una pagina viene conteggiato, indipendentemente dal fatto che la pagina sia stata ricaricata o raggiunta tramite navigazione interna."
+    },
+    {
+      "id": "metrics/orders",
+      "name": "Ordini",
+      "description": "Numero totale di transazioni completate con successo. Un ordine viene registrato quando un utente completa il processo di checkout e viene generato un ID ordine unico. Include tutti i canali di vendita (web, mobile, in-store se integrato)."
+    },
+    {
+      "id": "metrics/revenue",
+      "name": "Ricavi",
+      "description": "Valore monetario totale di tutte le transazioni completate, espresso in euro. Include il valore dei prodotti venduti, escluse le spese di spedizione e le tasse. Calcolato in base al prezzo finale pagato dal cliente dopo applicazione di sconti e promozioni."
+    },
+    {
+      "id": "metrics/custom1",
+      "name": "Conversioni Qualificate",
+      "description": "Numero di conversioni che hanno superato i criteri di qualità definiti nel sistema. Una conversione è considerata qualificata quando: l'utente ha interagito con almeno 3 pagine, il tempo sulla pagina è superiore a 30 secondi, non proviene da traffico bot o sospetto. Utilizza attributo last-touch per l'assegnazione del credito."
+    },
+    {
+      "id": "metrics/custom2",
+      "name": "Lead Generati",
+      "description": "Conteggio dei form di contatto completati con successo che hanno passato la validazione. Include form di richiesta informazioni, richieste di demo, download di contenuti gated e iscrizioni alla newsletter. Ogni lead è deduplificato per email nelle ultime 24 ore."
+    },
+    {
+      "id": "metrics/bounces",
+      "name": "Frequenza di Rimbalzo",
+      "description": "Percentuale di visite in cui l'utente ha visualizzato una singola pagina e poi ha lasciato il sito senza ulteriori interazioni. Calcolata come (visite di una pagina / visite totali) * 100. Non include sessioni con eventi custom registrati."
+    },
+    {
+      "id": "metrics/custom3",
+      "name": "Valore Medio Ordine",
+      "description": "Ricavo medio generato per ogni transazione completata. Calcolato come ricavi totali diviso numero di ordini. Espresso in euro con due decimali. Include tutti i prodotti nell'ordine ma esclude spese di spedizione e imposte."
+    }
+  ],
+  "dimensions": [
+  {
+    "id": "evar1",
+    "name": "Sottosezione 1",
+    "description": "è l'etichetta per raggruppare le pagine dell'alberatura di primo livello della app"
+  },
+  {
+    "id": "evar2",
+    "name": "Sottosezione 2",
+    "description": "è l'etichetta per raggruppare le pagine dell'alberatura di secondo livello della app"
+  },
+  {
+    "id": "evar5",
+    "name": "Pages",
+    "description": "è il nome della pagina uguale al pagename ma in una variabile di conversione"
+  },
+  {
+    "id": "evar6",
+    "name": "Sezione",
+    "description": "è lo stesso valore della section ma in una variabile di conversione"
+  },
+  {
+    "id": "evar9",
+    "name": "V9_site_area",
+    "description": "se il sito è suddiviso in piu' aree, ad esempio area pubblica e area privata rappresenta in quale macro area l'utente sta navigando"
+  },
+  {
+    "id": "evar10",
+    "name": "Website",
+    "description": "base url del sito, nel caso della APP non significativo"
+  },
+  {
+    "id": "evar17",
+    "name": "Content Type",
+    "description": ""
+  },
+  {
+    "id": "evar18",
+    "name": "Platform",
+    "description": ""
+  },
+  {
+    "id": "evar22",
+    "name": "App Version",
+    "description": ""
+  },
+  {
+    "id": "evar24",
+    "name": "metodo di pagamento",
+    "description": "metodo di pagamento utilizzato nelle transazioni, valido dei processi di acquisto e con la metrica orders"
+  },
+  {
+    "id": "evar25",
+    "name": "aggiunta metodo di pagamento sui processi di ricarica e pagamento fattura",
+    "description": ""
+  },
+  {
+    "id": "evar26",
+    "name": "taglio ricarica",
+    "description": "taglio della ricarica, o valore della singola ricarica"
+  },
+  {
+    "id": "evar27",
+    "name": "network connection",
+    "description": ""
+  },
+  {
+    "id": "evar28",
+    "name": "registration type",
+    "description": ""
+  },
+  {
+    "id": "evar29",
+    "name": "popup message",
+    "description": "messaggi informativi via modale quasi esclusivamente inerenti al processo di registrazione"
+  },
+  {
+    "id": "evar30",
+    "name": "buttonName",
+    "description": "è il valore dei pulsanti link o CTA (click through action) e permette di distinguere i vari pulsanti. Solitamente associato all'evento event32"
+  },
+  {
+    "id": "evar33",
+    "name": "sessionID",
+    "description": "Id sessione recuperato dalle chiamate alle API. Soltitamente utilizzato a scopo di throubleshooting in concomitanza di strumenti di log analysis"
+  },
+  {
+    "id": "evar34",
+    "name": "tipo linea(dashboard)",
+    "description": "tipo di linea fisso o mobile, solitamente valorizzata nella pagina dashboard"
+  },
+  {
+    "id": "evar35",
+    "name": "nome story (dashboard)",
+    "description": "inutilizzata"
+  },
+  {
+    "id": "evar36",
+    "name": "nome offerta (la mia linea)",
+    "description": "solitamente valorizzata nella sezione linea e indica le offerte in consistenza. Viene usata per misurare la gestione delle stesse offerte, come disattivazione "
+  },
+  {
+    "id": "evar37",
+    "name": "action gestione offerta (la mia linea)",
+    "description": ""
+  },
+  {
+    "id": "evar38",
+    "name": "Consensi-V38",
+    "description": "viene valorizzata quando vengono fatte modifiche ai consensi"
+  },
+  {
+    "id": "evar39",
+    "name": "banner",
+    "description": "nome del banner overlay per misurare i click. Per le misurare le visualizzazioni si usa event76 mentre per i tap o click event77"
+  },
+  {
+    "id": "evar40",
+    "name": "push Nome campagna",
+    "description": ""
+  },
+  {
+    "id": "evar41",
+    "name": "V41 - blacklist",
+    "description": ""
+  },
+  {
+    "id": "evar42",
+    "name": "V42- download TrackingLink",
+    "description": ""
+  },
+  {
+    "id": "evar43",
+    "name": "v43-storyType",
+    "description": ""
+  },
+  {
+    "id": "evar44",
+    "name": "V44-tipoutenza",
+    "description": ""
+  },
+  {
+    "id": "evar45",
+    "name": "V45-bannerFrom",
+    "description": ""
+  },
+  {
+    "id": "evar46",
+    "name": "v46-bannertype",
+    "description": ""
+  },
+  {
+    "id": "evar47",
+    "name": "V47-nome_iniziativa",
+    "description": ""
+  },
+  {
+    "id": "evar48",
+    "name": "V48-posizione_layer",
+    "description": ""
+  },
+  {
+    "id": "evar49",
+    "name": "V49-titolo_video",
+    "description": ""
+  },
+  {
+    "id": "evar50",
+    "name": "V50-offerta_banner",
+    "description": ""
+  },
+  {
+    "id": "evar51",
+    "name": "V51-offerta_minimal",
+    "description": ""
+  },
+  {
+    "id": "evar52",
+    "name": "V52-Informazioni_utili",
+    "description": ""
+  },
+  {
+    "id": "evar53",
+    "name": "V53-nome_layer",
+    "description": ""
+  },
+  {
+    "id": "evar54",
+    "name": "V54-parole_chiave",
+    "description": ""
+  },
+  {
+    "id": "evar55",
+    "name": "V55(Prodcut)",
+    "description": ""
+  },
+  {
+    "id": "evar56",
+    "name": "Error code",
+    "description": ""
+  },
+  {
+    "id": "evar57",
+    "name": "error description",
+    "description": ""
+  },
+  {
+    "id": "evar58",
+    "name": "V58-nome_storia",
+    "description": ""
+  },
+  {
+    "id": "evar59",
+    "name": "v59-posizione-offerteperte",
+    "description": ""
+  },
+  {
+    "id": "evar60",
+    "name": "V60-offerte_per_te",
+    "description": ""
+  },
+  {
+    "id": "evar61",
+    "name": "V61_codice_offerta",
+    "description": ""
+  },
+  {
+    "id": "evar62",
+    "name": "V62-categoria_offerte_per_te",
+    "description": ""
+  },
+  {
+    "id": "evar63",
+    "name": "V63_nome_operatore",
+    "description": ""
+  },
+  {
+    "id": "evar64",
+    "name": "V64-startup-status",
+    "description": ""
+  },
+  {
+    "id": "evar68",
+    "name": "V68-permissions(OS)",
+    "description": ""
+  },
+  {
+    "id": "evar69",
+    "name": "V69-DMA transactionID",
+    "description": ""
+  },
+  {
+    "id": "evar70",
+    "name": "V70_ticketing_citta",
+    "description": ""
+  },
+  {
+    "id": "evar71",
+    "name": "V71_ticketing_parking",
+    "description": ""
+  },
+  {
+    "id": "evar72",
+    "name": "V72_ticketing_ticket",
+    "description": ""
+  },
+  {
+    "id": "evar73",
+    "name": "V73-tipo_keyword",
+    "description": ""
+  },
+  {
+    "id": "evar74",
+    "name": "V74-num_risultati_ricerca",
+    "description": ""
+  },
+  {
+    "id": "evar75",
+    "name": "V75-titolo_pagina_risultati_ricerca",
+    "description": ""
+  },
+  {
+    "id": "evar76",
+    "name": "V76_fatture_voce_extra",
+    "description": ""
+  },
+  {
+    "id": "evar77",
+    "name": "V77-azioni_veloci",
+    "description": ""
+  },
+  {
+    "id": "evar78",
+    "name": "V78-nome_notifica",
+    "description": ""
+  },
+  {
+    "id": "evar79",
+    "name": "V79-voce_fattura",
+    "description": ""
+  },
+  {
+    "id": "evar80",
+    "name": "V80-dettaglio_fattura",
+    "description": ""
+  },
+  {
+    "id": "evar81",
+    "name": "V81-quando_quanto_ricaricare",
+    "description": ""
+  },
+  {
+    "id": "evar82",
+    "name": "V82-tipologia_notifica",
+    "description": ""
+  },
+  {
+    "id": "evar83",
+    "name": "V83_nome_storia_carousel_1",
+    "description": ""
+  },
+  {
+    "id": "evar84",
+    "name": "V84_nome_layer_carousel_1",
+    "description": ""
+  },
+  {
+    "id": "evar85",
+    "name": "V85_nome_storia_carousel_2",
+    "description": ""
+  },
+  {
+    "id": "evar86",
+    "name": "V86_nome_layer_carousel_2",
+    "description": ""
+  },
+  {
+    "id": "evar87",
+    "name": "V87_nome_overlayer_caring",
+    "description": ""
+  },
+  {
+    "id": "evar90",
+    "name": "V90-channel_from",
+    "description": ""
+  },
+  {
+    "id": "evar91",
+    "name": "V91-nome_podcast",
+    "description": ""
+  },
+  {
+    "id": "evar101",
+    "name": "V101 - TelecomID",
+    "description": ""
+  },
+  {
+    "id": "evar103",
+    "name": "V103 -cli(encrypted)",
+    "description": ""
+  },
+  {
+    "id": "evar120",
+    "name": "V120- medallia UUID",
+    "description": ""
+  },
+  {
+    "id": "evar125",
+    "name": "V125-step",
+    "description": ""
+  },
+  {
+    "id": "evar126",
+    "name": "V126-processo",
+    "description": ""
+  },
+  {
+    "id": "evar131",
+    "name": "V131-connessolineafissa",
+    "description": ""
+  },
+  {
+    "id": "evar148",
+    "name": "V148-info_box",
+    "description": ""
+  },
+  {
+    "id": "evar153",
+    "name": "V153-registration level (webview remap v48)",
+    "description": ""
+  },
+  {
+    "id": "evar154",
+    "name": "V154 link position (webview evar50)",
+    "description": ""
+  },
+  {
+    "id": "evar155",
+    "name": "V155 transactionID (webview evar 69)",
+    "description": ""
+  },
+  {
+    "id": "evar156",
+    "name": "V156 almnp nio o rientro (webview evar80)",
+    "description": ""
+  },
+  {
+    "id": "evar157",
+    "name": "V157 sottopagina (AC) (webview evar81)",
+    "description": ""
+  },
+  {
+    "id": "evar158",
+    "name": "V158 - esito operazione (AC) (webview evar83)",
+    "description": ""
+  },
+  {
+    "id": "evar159",
+    "name": "V159-nome_scheda_ABtest",
+    "description": ""
+  },
+  {
+    "id": "evar160",
+    "name": "V160 mese movimernti",
+    "description": ""
+  },
+  {
+    "id": "evar161",
+    "name": "V161 interesse_icd(proponi)",
+    "description": ""
+  },
+  {
+    "id": "evar164",
+    "name": "V164-slider HP-click",
+    "description": ""
+  },
+  {
+    "id": "evar165",
+    "name": "V165_nome_storia_carousel_3",
+    "description": ""
+  },
+  {
+    "id": "evar166",
+    "name": "V166_nome_LAYER_carousel_3",
+    "description": ""
+  }
+  ],
+  "reportSuites": [
+    {
+      "id": "timytimapp",
+      "name": "MyTIM APP",
+      "description": "Report suite principale per il sito web di produzione"
+    }
+  ]
+}
