@@ -1,77 +1,36 @@
 const express = require('express');
 const router = express.Router();
-const authMiddleware = require('../middleware/auth.middleware');
+const sessionAuth = require('../middleware/session-auth.middleware');
 const nlpService = require('../services/nlp.service');
 const adobeService = require('../services/adobe.service');
-const configService = require('../services/config.service');
 
-router.post('/config', authMiddleware, async (req, res) => {
-  try {
-    const { config } = req.body;
-    
-    if (!config || !config.metrics || !config.dimensions) {
-      return res.status(400).json({ 
-        error: 'Invalid configuration format. Expected {metrics: [], dimensions: []}' 
-      });
-    }
-
-    configService.setUserConfig(req.userId, config);
-    
-    res.json({
-      success: true,
-      metrics: config.metrics?.length || 0,
-      dimensions: config.dimensions?.length || 0,
-      message: 'Configuration loaded successfully'
-    });
-  } catch (error) {
-    console.error('Config upload error:', error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-router.get('/config', authMiddleware, (req, res) => {
-  try {
-    const config = configService.getUserConfig(req.userId);
-    
-    if (!config) {
-      return res.status(404).json({ error: 'No configuration found' });
-    }
-
-    res.json({
-      metrics: config.metrics?.length || 0,
-      dimensions: config.dimensions?.length || 0,
-      hasConfig: true
-    });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-router.post('/ask', authMiddleware, async (req, res) => {
+router.post('/ask', sessionAuth, async (req, res) => {
   try {
     const { query } = req.body;
-    
+
     if (!query || typeof query !== 'string') {
       return res.status(400).json({ error: 'Query is required' });
     }
 
-    const userConfig = configService.getUserConfig(req.userId);
-    
-    if (!userConfig) {
-      return res.status(400).json({ 
-        error: 'Configuration not loaded. Please upload your metrics/dimensions configuration first.' 
+    console.log('Interpreting query:', query);
+    const interpretation = await nlpService.interpretQuery(query);
+
+    if (!interpretation.metric || interpretation.metric.length === 0) {
+      return res.json({
+        needsClarification: true,
+        message: 'Could not identify a valid metric in your query. Please specify which metric you want to analyze (visite, ordini, registrazioni, etc.).'
       });
     }
 
-    console.log('Interpreting query:', query);
-    const interpretation = await nlpService.interpretQuery(query, userConfig);
-    
-    if (!interpretation.metric) {
-      return res.json({
-        needsClarification: true,
-        message: 'Could not identify a valid metric in your query. Please specify which metric you want to analyze.',
-        availableMetrics: userConfig.metrics.map(m => m.name)
-      });
+    // Determina il limite di risultati
+    const resultLimit = interpretation.limit || 50;
+
+    // Determina il tipo di grafico (se non specificato, auto-detect)
+    let chartType = interpretation.chartType;
+    if (!chartType) {
+      // Auto-determina: time series → line, altre dimensioni → bar
+      const isTimeDimension = interpretation.dimension?.id?.includes('daterange');
+      chartType = isTimeDimension ? 'line' : 'bar';
     }
 
     // Estrai eventuali filtri di ricerca dalla query
@@ -111,15 +70,15 @@ router.post('/ask', authMiddleware, async (req, res) => {
         dateRange: interpretation.dateRange
       }],
       metricContainer: {
-        metrics: [{
-          id: interpretation.metric.id
-        }]
+        metrics: interpretation.metric.map(m => ({ id: m.id }))
       },
-      dimension: interpretation.dimension 
-        ? `variables/${interpretation.dimension.id}` 
+      dimension: interpretation.dimension
+        ? (interpretation.dimension.id.startsWith('variables/')
+            ? interpretation.dimension.id
+            : `variables/${interpretation.dimension.id}`)
         : 'variables/daterangeday',
       settings: {
-        limit: 50,
+        limit: resultLimit,
         page: 0
       }
     };
@@ -130,8 +89,10 @@ router.post('/ask', authMiddleware, async (req, res) => {
       reportRequest.search = {
         clause: `CONTAINS '${searchTerm}'`
       };
-      // Limita molto i risultati per query con filtri
-      reportRequest.settings.limit = 10;
+      // Se c'è un filtro di ricerca e non è stato specificato un limite, usa 10
+      if (!interpretation.limit) {
+        reportRequest.settings.limit = 10;
+      }
       reportRequest.settings.page = 0;
       
       // Log dettagliato per debug
@@ -154,9 +115,12 @@ router.post('/ask', authMiddleware, async (req, res) => {
     return res.json({
       success: true,
       interpretation: {
-        metric: interpretation.metric.name,
+        metric: interpretation.metric.map(m => m.name).join(' + '),
+        metricIds: interpretation.metric.map(m => m.id),
         dimension: interpretation.dimension?.name || 'Date',
-        dateRange: interpretation.dateRange
+        dateRange: interpretation.dateRange,
+        chartType: chartType,
+        limit: resultLimit
       },
       data: reportData
     });
@@ -185,7 +149,7 @@ router.post('/ask', authMiddleware, async (req, res) => {
   }
 });
 
-router.get('/test-adobe', authMiddleware, async (req, res) => {
+router.get('/test-adobe', sessionAuth, async (req, res) => {
   try {
     const result = await adobeService.testConnection(req.accessToken);
     res.json({ success: true, ...result });

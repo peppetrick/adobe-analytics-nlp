@@ -14,54 +14,66 @@ class AdobeService {
   parseDateRange(dateRange) {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    
+
     let startDate, endDate;
-    
-    switch(dateRange) {
-      case 'today':
-        startDate = new Date(today);
-        endDate = new Date(today);
-        endDate.setHours(23, 59, 59, 999);
-        break;
-        
-      case 'yesterday':
-        startDate = new Date(today);
-        startDate.setDate(startDate.getDate() - 1);
-        endDate = new Date(startDate);
-        endDate.setHours(23, 59, 59, 999);
-        break;
-        
-      case 'last7days':
-        startDate = new Date(today);
-        startDate.setDate(startDate.getDate() - 7);
-        endDate = new Date(today);
-        endDate.setDate(endDate.getDate() - 1);
-        endDate.setHours(23, 59, 59, 999);
-        break;
-        
-      case 'last30days':
-        startDate = new Date(today);
-        startDate.setDate(startDate.getDate() - 30);
-        endDate = new Date(today);
-        endDate.setDate(endDate.getDate() - 1);
-        endDate.setHours(23, 59, 59, 999);
-        break;
-        
-      case 'last90days':
-        startDate = new Date(today);
-        startDate.setDate(startDate.getDate() - 90);
-        endDate = new Date(today);
-        endDate.setDate(endDate.getDate() - 1);
-        endDate.setHours(23, 59, 59, 999);
-        break;
-        
-      default:
-        // Default: ultimi 30 giorni
-        startDate = new Date(today);
-        startDate.setDate(startDate.getDate() - 30);
-        endDate = new Date(today);
-        endDate.setDate(endDate.getDate() - 1);
-        endDate.setHours(23, 59, 59, 999);
+
+    // Prova a estrarre range dinamico (es: "last2days", "last5days")
+    const dynamicMatch = dateRange.match(/^last(\d+)days$/);
+
+    if (dynamicMatch) {
+      const numDays = parseInt(dynamicMatch[1]);
+      startDate = new Date(today);
+      startDate.setDate(startDate.getDate() - numDays);
+      endDate = new Date(today);
+      endDate.setDate(endDate.getDate() - 1);
+      endDate.setHours(23, 59, 59, 999);
+    } else {
+      switch(dateRange) {
+        case 'today':
+          startDate = new Date(today);
+          endDate = new Date(today);
+          endDate.setHours(23, 59, 59, 999);
+          break;
+
+        case 'yesterday':
+          startDate = new Date(today);
+          startDate.setDate(startDate.getDate() - 1);
+          endDate = new Date(startDate);
+          endDate.setHours(23, 59, 59, 999);
+          break;
+
+        case 'last7days':
+          startDate = new Date(today);
+          startDate.setDate(startDate.getDate() - 7);
+          endDate = new Date(today);
+          endDate.setDate(endDate.getDate() - 1);
+          endDate.setHours(23, 59, 59, 999);
+          break;
+
+        case 'last30days':
+          startDate = new Date(today);
+          startDate.setDate(startDate.getDate() - 30);
+          endDate = new Date(today);
+          endDate.setDate(endDate.getDate() - 1);
+          endDate.setHours(23, 59, 59, 999);
+          break;
+
+        case 'last90days':
+          startDate = new Date(today);
+          startDate.setDate(startDate.getDate() - 90);
+          endDate = new Date(today);
+          endDate.setDate(endDate.getDate() - 1);
+          endDate.setHours(23, 59, 59, 999);
+          break;
+
+        default:
+          // Default: ultimi 30 giorni
+          startDate = new Date(today);
+          startDate.setDate(startDate.getDate() - 30);
+          endDate = new Date(today);
+          endDate.setDate(endDate.getDate() - 1);
+          endDate.setHours(23, 59, 59, 999);
+      }
     }
     
     const formatDate = (date) => {
@@ -165,21 +177,33 @@ class AdobeService {
     const metricId = rawData.columns?.metric?.[0]?.id || 'value';
     const dimensionName = this.extractDimensionName(request.dimension);
     
-    return rows.map(row => {
+    const isDateDimension = request.dimension === 'variables/daterangeday';
+
+    const formatted = rows.map(row => {
       const dataPoint = {
         dimension: row.value || 'N/A',
         dimensionName: dimensionName,
-        metric: row.data?.[0] || 0
+        metric: row.data?.[0] || 0,   // prima metrica (backward compat)
+        metrics: row.data || []        // tutte le metriche
       };
 
-      // Se la dimensione è una data, formattala
-      if (request.dimension === 'variables/daterangeday') {
+      // Se la dimensione è una data, formattala e conserva il valore raw per l'ordinamento
+      if (isDateDimension) {
+        dataPoint.rawDate = row.value; // YYYYMMDD, usato per ordinamento
         dataPoint.date = this.formatDate(row.value);
         dataPoint.dimension = dataPoint.date;
       }
 
       return dataPoint;
     });
+
+    // Per dimensioni data, ordina cronologicamente (crescente)
+    if (isDateDimension) {
+      formatted.sort((a, b) => (a.rawDate || '').localeCompare(b.rawDate || ''));
+      formatted.forEach(d => delete d.rawDate);
+    }
+
+    return formatted;
   }
 
   /**

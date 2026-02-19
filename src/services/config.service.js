@@ -1,18 +1,33 @@
-const NodeCache = require('node-cache');
+const { createCache } = require('./cache/cache-factory');
 
 class ConfigService {
   constructor() {
-    // Cache in memoria per MVP
-    // In produzione: usa Redis o database
-    this.cache = new NodeCache({ 
-      stdTTL: 3600, // 1 ora
-      checkperiod: 120 // Controlla ogni 2 minuti
-    });
+    // Initialize with cache factory (Redis with memory fallback)
+    this.initCache();
 
-    console.log('ConfigService initialized with in-memory cache');
-    
     // Carica RAG service solo quando necessario (lazy loading)
     this.ragService = null;
+  }
+
+  /**
+   * Initialize cache (async)
+   */
+  async initCache() {
+    try {
+      this.cache = await createCache({
+        ttl: 3600, // 1 hour
+        keyPrefix: 'config_' // Prefix for Redis keys
+      });
+
+      const cacheType = this.cache.getType();
+      console.log(`✅ ConfigService initialized with ${cacheType} cache`);
+    } catch (error) {
+      console.error('❌ ConfigService: Cache initialization failed:', error.message);
+      // Fallback to memory cache
+      const MemoryCacheService = require('./cache/memory-cache.service');
+      this.cache = new MemoryCacheService({ ttl: 3600 });
+      console.log('💾 ConfigService: Using memory cache fallback');
+    }
   }
 
   /**
@@ -35,16 +50,16 @@ class ConfigService {
    * @param {string} userId - ID utente
    * @param {object} config - Configurazione {metrics: [], dimensions: []}
    */
-  setUserConfig(userId, config) {
+  async setUserConfig(userId, config) {
     const key = this.getKey(userId);
-    
+
     // Valida la configurazione
     if (!this.validateConfig(config)) {
       throw new Error('Invalid configuration format');
     }
 
-    this.cache.set(key, config);
-    
+    await this.cache.set(key, config);
+
     // Alimenta automaticamente RAG con la configurazione (se disponibile)
     const rag = this.loadRagService();
     if (rag && typeof rag.addUserConfiguration === 'function') {
@@ -54,7 +69,7 @@ class ConfigService {
         console.warn('⚠️  Could not sync config to RAG:', error.message);
       }
     }
-    
+
     console.log(`Config saved for user ${userId}: ${config.metrics?.length} metrics, ${config.dimensions?.length} dimensions`);
   }
 
@@ -63,10 +78,10 @@ class ConfigService {
    * @param {string} userId - ID utente
    * @returns {object|null} Configurazione o null se non trovata
    */
-  getUserConfig(userId) {
+  async getUserConfig(userId) {
     const key = this.getKey(userId);
-    const config = this.cache.get(key);
-    
+    const config = await this.cache.get(key);
+
     if (!config) {
       console.log(`No config found for user ${userId}`);
       return null;
@@ -80,14 +95,14 @@ class ConfigService {
    * @param {string} userId - ID utente
    * @returns {boolean} True se cancellata con successo
    */
-  clearUserConfig(userId) {
+  async clearUserConfig(userId) {
     const key = this.getKey(userId);
-    const deleted = this.cache.del(key);
-    
+    const deleted = await this.cache.del(key);
+
     if (deleted) {
       console.log(`Config cleared for user ${userId}`);
     }
-    
+
     return deleted > 0;
   }
 
@@ -96,9 +111,9 @@ class ConfigService {
    * @param {string} userId - ID utente
    * @returns {boolean}
    */
-  hasUserConfig(userId) {
+  async hasUserConfig(userId) {
     const key = this.getKey(userId);
-    return this.cache.has(key);
+    return await this.cache.has(key);
   }
 
   /**
@@ -173,12 +188,12 @@ class ConfigService {
    * @param {string} searchTerm
    * @returns {Array}
    */
-  searchMetrics(userId, searchTerm) {
-    const config = this.getUserConfig(userId);
+  async searchMetrics(userId, searchTerm) {
+    const config = await this.getUserConfig(userId);
     if (!config) return [];
 
     const term = searchTerm.toLowerCase();
-    return config.metrics.filter(m => 
+    return config.metrics.filter(m =>
       m.name.toLowerCase().includes(term) ||
       m.description.toLowerCase().includes(term)
     );
@@ -190,12 +205,12 @@ class ConfigService {
    * @param {string} searchTerm
    * @returns {Array}
    */
-  searchDimensions(userId, searchTerm) {
-    const config = this.getUserConfig(userId);
+  async searchDimensions(userId, searchTerm) {
+    const config = await this.getUserConfig(userId);
     if (!config) return [];
 
     const term = searchTerm.toLowerCase();
-    return config.dimensions.filter(d => 
+    return config.dimensions.filter(d =>
       d.name.toLowerCase().includes(term) ||
       d.description.toLowerCase().includes(term)
     );
@@ -207,8 +222,8 @@ class ConfigService {
    * @param {string} metricId
    * @returns {object|null}
    */
-  getMetricById(userId, metricId) {
-    const config = this.getUserConfig(userId);
+  async getMetricById(userId, metricId) {
+    const config = await this.getUserConfig(userId);
     if (!config) return null;
 
     return config.metrics.find(m => m.id === metricId) || null;
@@ -220,11 +235,57 @@ class ConfigService {
    * @param {string} dimensionId
    * @returns {object|null}
    */
-  getDimensionById(userId, dimensionId) {
-    const config = this.getUserConfig(userId);
+  async getDimensionById(userId, dimensionId) {
+    const config = await this.getUserConfig(userId);
     if (!config) return null;
 
     return config.dimensions.find(d => d.id === dimensionId) || null;
+  }
+
+  /**
+   * Get cache health status
+   * @returns {Promise<Object>} Health status
+   */
+  async getCacheHealth() {
+    try {
+      if (!this.cache || typeof this.cache.healthCheck !== 'function') {
+        return {
+          connected: false,
+          type: 'unknown',
+          error: 'Cache not initialized'
+        };
+      }
+
+      const health = await this.cache.healthCheck();
+      const stats = await this.cache.getStats();
+
+      return {
+        connected: health.connected,
+        type: health.type || 'unknown',
+        keys: stats.keys || 0
+      };
+    } catch (error) {
+      return {
+        connected: false,
+        type: 'unknown',
+        error: error.message
+      };
+    }
+  }
+
+  /**
+   * Get cache type
+   * @returns {string} Cache type ('redis' or 'memory')
+   */
+  getCacheType() {
+    try {
+      if (!this.cache || typeof this.cache.getType !== 'function') {
+        return 'unknown';
+      }
+      return this.cache.getType();
+    } catch (error) {
+      return 'unknown';
+    }
   }
 }
 

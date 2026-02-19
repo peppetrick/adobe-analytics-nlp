@@ -1,10 +1,12 @@
-// Adobe Analytics NLU - Frontend Application
+// Adobe Analytics NLU - Frontend Application (Secure Session-Based)
 
 // State management
 const state = {
-    accessToken: null,
+    authenticated: false,
+    csrfToken: null,
     hasConfig: false,
-    currentChart: null
+    currentChart: null,
+    queryHistory: []
 };
 
 // API Base URL
@@ -31,10 +33,15 @@ const metricsCount = document.getElementById('metrics-count');
 const dimensionsCount = document.getElementById('dimensions-count');
 const closeReportBtn = document.getElementById('close-report-btn');
 const mainContentWrapper = document.getElementById('main-content-wrapper');
+const queryHistoryList = document.getElementById('query-history-list');
+const clearHistoryBtn = document.getElementById('clear-history-btn');
+const historyEmpty = document.getElementById('history-empty');
 
 // Initialize
-document.addEventListener('DOMContentLoaded', () => {
-    checkAuthStatus();
+document.addEventListener('DOMContentLoaded', async () => {
+    await initCSRF();
+    loadQueryHistory();
+    await checkAuthStatus();
     setupEventListeners();
 });
 
@@ -68,19 +75,51 @@ function setupEventListeners() {
         el.addEventListener('click', (e) => {
             e.preventDefault();
             if (!state.hasConfig) return;
-            queryInput.value = el.textContent;
-            handleSendQuery();
+            queryInput.value = el.textContent.trim();
+            queryInput.focus();
         });
     });
+
+    // Clear history button
+    clearHistoryBtn.addEventListener('click', clearQueryHistory);
 }
 
-// Check if user is already authenticated
-function checkAuthStatus() {
-    const token = localStorage.getItem('adobe_access_token');
-    if (token) {
-        state.accessToken = token;
-        showMainApp();
-        addSystemMessage('Benvenuto! Carica la configurazione per iniziare.');
+// Initialize CSRF token
+async function initCSRF() {
+    try {
+        const response = await fetch(`${API_BASE}/auth/csrf-token`, {
+            credentials: 'include'
+        });
+
+        if (response.ok) {
+            const data = await response.json();
+            state.csrfToken = data.csrfToken;
+            console.log('✅ CSRF token initialized');
+        }
+    } catch (error) {
+        console.warn('⚠️ CSRF token initialization failed:', error);
+    }
+}
+
+// Check if user is already authenticated (session-based)
+async function checkAuthStatus() {
+    try {
+        const response = await fetch(`${API_BASE}/auth/session`, {
+            credentials: 'include'
+        });
+
+        if (response.ok) {
+            const data = await response.json();
+
+            if (data.authenticated) {
+                state.authenticated = true;
+                state.hasConfig = true; // Configurazione sempre disponibile (da business logic files)
+                showMainApp();
+                // Il messaggio di benvenuto è già presente nell'HTML
+            }
+        }
+    } catch (error) {
+        console.error('Auth status check failed:', error);
     }
 }
 
@@ -105,14 +144,26 @@ async function handleLogin() {
     }
 }
 
-// Logout
-function handleLogout() {
-    state.accessToken = null;
+// Logout (session-based)
+async function handleLogout() {
+    try {
+        await fetch(`${API_BASE}/auth/logout`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': state.csrfToken
+            },
+            credentials: 'include'
+        });
+    } catch (error) {
+        console.error('Logout error:', error);
+    }
+
+    // Reset state
+    state.authenticated = false;
     state.hasConfig = false;
-    localStorage.removeItem('adobe_access_token');
-    localStorage.removeItem('adobe_token_expires');
-    localStorage.removeItem('adobe_refresh_token');
-    
+
+    // Show login screen
     loginScreen.classList.remove('d-none');
     mainApp.classList.add('d-none');
     chatContainer.innerHTML = '';
@@ -122,6 +173,14 @@ function handleLogout() {
 function showMainApp() {
     loginScreen.classList.add('d-none');
     mainApp.classList.remove('d-none');
+
+    // Nascondi la sezione di configurazione (non più necessaria)
+    configUploadArea.classList.add('d-none');
+    configLoadedArea.classList.add('d-none');
+
+    // Abilita direttamente l'input delle query
+    queryInput.disabled = false;
+    sendQueryBtn.disabled = false;
 }
 
 // Handle config file upload
@@ -133,13 +192,14 @@ async function handleConfigUpload(event) {
         const text = await file.text();
         const config = JSON.parse(text);
 
-        // Upload to server
+        // Upload to server (session-based auth)
         const response = await fetch(`${API_BASE}/query/config`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${state.accessToken}`
+                'X-CSRF-Token': state.csrfToken
             },
+            credentials: 'include',
             body: JSON.stringify({ config })
         });
 
@@ -182,6 +242,9 @@ async function sendQuery(inputElement) {
     const query = inputElement.value.trim();
     if (!query || !state.hasConfig) return;
 
+    // Save query to history
+    addToQueryHistory(query);
+
     // Disable inputs
     inputElement.disabled = true;
     queryInput.disabled = true;
@@ -212,8 +275,9 @@ async function sendQuery(inputElement) {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${state.accessToken}`
+                'X-CSRF-Token': state.csrfToken
             },
+            credentials: 'include',
             body: JSON.stringify({ query })
         });
 
@@ -258,7 +322,7 @@ async function sendQuery(inputElement) {
             }
 
             // Display report (will switch to full screen)
-            displayReport(interpretation, reportData);
+            displayReport(interpretation, reportData, interpretation.chartType || 'line');
         } else {
             console.error('Unexpected response format:', data);
             const errorMsg = 'Si è verificato un errore nel formato della risposta. Riprova.';
@@ -363,46 +427,81 @@ function scrollToBottom() {
 }
 
 // Display report
-function displayReport(interpretation, data) {
+function displayReport(interpretation, data, chartType = 'line') {
     // Nascondi il contenuto principale
     mainContentWrapper.classList.add('d-none');
-    
+
     // Mostra il report a schermo intero
     reportContainer.classList.remove('d-none');
 
     // Update title
-    document.getElementById('report-title').textContent = 
+    document.getElementById('report-title').textContent =
         `${interpretation.metric}${interpretation.dimension !== 'Date' ? ' per ' + interpretation.dimension : ''}`;
-    
-    document.getElementById('report-subtitle').textContent = 
-        `Periodo: ${formatDateRange(interpretation.dateRange)}`;
+
+    const subtitle = `Periodo: ${formatDateRange(interpretation.dateRange)}`;
+    document.getElementById('report-subtitle').textContent =
+        interpretation.limit ? `${subtitle} (Top ${interpretation.limit})` : subtitle;
+
+    // Rileva nomi metriche: se multi-metrica usa metricIds, altrimenti singola
+    const metricNames = interpretation.metricIds
+        ? interpretation.metric.split(' + ')
+        : [interpretation.metric];
+    const isMultiMetric = metricNames.length > 1;
 
     // Update table headers
     document.getElementById('table-header-dim').textContent = interpretation.dimension;
-    document.getElementById('table-header-metric').textContent = interpretation.metric;
+    const headerMetric = document.getElementById('table-header-metric');
+    if (isMultiMetric) {
+        // Sostituisce l'intestazione singola con una per ogni metrica
+        headerMetric.textContent = metricNames[0];
+        let sibling = headerMetric.nextElementSibling;
+        // Rimuovi eventuali header extra precedenti
+        while (sibling && sibling.dataset.extraMetric) {
+            const next = sibling.nextElementSibling;
+            sibling.remove();
+            sibling = next;
+        }
+        metricNames.slice(1).forEach(name => {
+            const th = document.createElement('th');
+            th.className = 'text-end';
+            th.dataset.extraMetric = '1';
+            th.textContent = name;
+            headerMetric.parentElement.appendChild(th);
+        });
+    } else {
+        headerMetric.textContent = interpretation.metric;
+        // Rimuovi eventuali header extra precedenti
+        let sibling = headerMetric.nextElementSibling;
+        while (sibling && sibling.dataset.extraMetric) {
+            const next = sibling.nextElementSibling;
+            sibling.remove();
+            sibling = next;
+        }
+    }
 
     // Populate table
     const tbody = document.getElementById('report-table-body');
     tbody.innerHTML = '';
-    
+
     data.forEach(row => {
         const tr = document.createElement('tr');
-        tr.innerHTML = `
-            <td>${escapeHtml(row.dimension)}</td>
-            <td class="text-end"><strong>${formatNumber(row.metric)}</strong></td>
-        `;
+        const metricValues = row.metrics && row.metrics.length > 1 ? row.metrics : [row.metric];
+        const metricCells = metricValues
+            .map(v => `<td class="text-end"><strong>${formatNumber(v)}</strong></td>`)
+            .join('');
+        tr.innerHTML = `<td>${escapeHtml(row.dimension)}</td>${metricCells}`;
         tbody.appendChild(tr);
     });
 
-    // Create chart
-    createChart(data, interpretation.metric);
+    // Create chart with specified type
+    createChart(data, metricNames, chartType);
 
     // Scroll to top
     window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 // Create chart
-function createChart(data, metricName) {
+function createChart(data, metricNames, chartType = 'line') {
     const canvas = document.getElementById('report-chart');
     const ctx = canvas.getContext('2d');
 
@@ -411,35 +510,63 @@ function createChart(data, metricName) {
         state.currentChart.destroy();
     }
 
-    state.currentChart = new Chart(ctx, {
-        type: 'line',
+    // Normalizza metricNames ad array
+    const names = Array.isArray(metricNames) ? metricNames : [metricNames];
+
+    // Configurazione colori
+    const colors = [
+        'rgb(75, 192, 192)', 'rgb(255, 99, 132)', 'rgb(54, 162, 235)',
+        'rgb(255, 206, 86)', 'rgb(153, 102, 255)', 'rgb(255, 159, 64)',
+        'rgb(199, 199, 199)', 'rgb(83, 102, 255)', 'rgb(255, 99, 255)',
+        'rgb(99, 255, 132)'
+    ];
+
+    const isPieChart = chartType === 'pie' || chartType === 'doughnut';
+
+    let datasets;
+
+    if (isPieChart) {
+        // Pie/doughnut: un solo dataset, colori per slice
+        datasets = [{
+            label: names[0],
+            data: data.map(d => d.metric),
+            borderColor: data.map((_, i) => colors[i % colors.length]),
+            backgroundColor: data.map((_, i) => colors[i % colors.length]),
+            borderWidth: 1
+        }];
+    } else {
+        // Line/bar: un dataset per metrica
+        datasets = names.map((name, idx) => ({
+            label: name,
+            data: data.map(d => (d.metrics && d.metrics[idx] !== undefined ? d.metrics[idx] : d.metric)),
+            borderColor: colors[idx % colors.length],
+            backgroundColor: colors[idx % colors.length].replace('rgb(', 'rgba(').replace(')', ', 0.2)'),
+            borderWidth: 2,
+            tension: chartType === 'line' ? 0.3 : undefined,
+            fill: chartType === 'line' && idx === 0
+        }));
+    }
+
+    const chartConfig = {
+        type: chartType,
         data: {
             labels: data.map(d => d.dimension),
-            datasets: [{
-                label: metricName,
-                data: data.map(d => d.metric),
-                borderColor: 'rgb(75, 192, 192)',
-                backgroundColor: 'rgba(75, 192, 192, 0.2)',
-                tension: 0.3,
-                fill: true
-            }]
+            datasets
         },
         options: {
             responsive: true,
             maintainAspectRatio: false,
             plugins: {
-                legend: {
-                    display: true,
-                    position: 'top'
-                }
-            },
-            scales: {
-                y: {
-                    beginAtZero: true
-                }
+                legend: { display: true, position: 'top' }
             }
         }
-    });
+    };
+
+    if (!isPieChart) {
+        chartConfig.options.scales = { y: { beginAtZero: true } };
+    }
+
+    state.currentChart = new Chart(ctx, chartConfig);
 }
 
 // Utility functions
@@ -466,4 +593,95 @@ function formatDateRange(range) {
 
 function showError(message) {
     addSystemMessage('⚠️ ' + message);
+}
+
+// Query History Management
+function loadQueryHistory() {
+    try {
+        const stored = localStorage.getItem('queryHistory');
+        if (stored) {
+            state.queryHistory = JSON.parse(stored);
+            updateHistoryUI();
+        }
+    } catch (error) {
+        console.error('Error loading query history:', error);
+        state.queryHistory = [];
+    }
+}
+
+function saveQueryHistory() {
+    try {
+        localStorage.setItem('queryHistory', JSON.stringify(state.queryHistory));
+    } catch (error) {
+        console.error('Error saving query history:', error);
+    }
+}
+
+function addToQueryHistory(query) {
+    // Remove duplicates (case insensitive)
+    state.queryHistory = state.queryHistory.filter(
+        q => q.toLowerCase() !== query.toLowerCase()
+    );
+
+    // Add to beginning
+    state.queryHistory.unshift(query);
+
+    // Keep only last 10
+    if (state.queryHistory.length > 10) {
+        state.queryHistory = state.queryHistory.slice(0, 10);
+    }
+
+    saveQueryHistory();
+    updateHistoryUI();
+}
+
+function clearQueryHistory() {
+    if (state.queryHistory.length === 0) return;
+
+    if (confirm('Vuoi cancellare tutto lo storico delle query?')) {
+        state.queryHistory = [];
+        saveQueryHistory();
+        updateHistoryUI();
+    }
+}
+
+function updateHistoryUI() {
+    if (state.queryHistory.length === 0) {
+        queryHistoryList.innerHTML = '<div class="text-muted text-center py-3" id="history-empty">Nessuna query recente</div>';
+        clearHistoryBtn.style.display = 'none';
+        return;
+    }
+
+    clearHistoryBtn.style.display = 'block';
+
+    let html = '';
+    state.queryHistory.forEach((query, index) => {
+        html += `
+            <a href="#" class="list-group-item list-group-item-action history-query-item d-flex justify-content-between align-items-center" data-query="${escapeHtml(query)}">
+                <span class="text-truncate" style="max-width: 85%;">${escapeHtml(query)}</span>
+                <span class="badge bg-secondary">${index + 1}</span>
+            </a>
+        `;
+    });
+
+    queryHistoryList.innerHTML = html;
+
+    // Add click handlers to history items
+    document.querySelectorAll('.history-query-item').forEach(el => {
+        el.addEventListener('click', (e) => {
+            e.preventDefault();
+            const query = el.getAttribute('data-query');
+
+            // Populate the input field based on current view
+            if (reportContainer.classList.contains('d-none')) {
+                // Main view
+                queryInput.value = query;
+                queryInput.focus();
+            } else {
+                // Report view
+                queryInputReport.value = query;
+                queryInputReport.focus();
+            }
+        });
+    });
 }
