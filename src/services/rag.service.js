@@ -128,10 +128,17 @@ Dimensioni ad Alta Cardinalità:
     if (this.knowledgeBase['business_tracking-mapping']) {
       relevantDocs.push(this.knowledgeBase['business_tracking-mapping']);
     }
+    if (this.knowledgeBase['business_segments']) {
+      relevantDocs.push(this.knowledgeBase['business_segments']);
+    }
+    if (this.knowledgeBase['business_standard-variables']) {
+      relevantDocs.push(this.knowledgeBase['business_standard-variables']);
+    }
 
     // Keywords per business logic aggiuntivo
-    const needsFunnelInfo = /funnel|percorso|journey|abbandono|drop-off|conversion rate|tasso di conversione/i.test(query);
+    const needsFunnelInfo = /funnel|percorso|journey|abbandono|drop-off|conversion rate|tasso di conversione|tutti gli step|step del|passo del|processo di|fasi del/i.test(query);
     const needsAuthInfo = /registra|login|accedi|autenticaz|sign.?up|sign.?in|verifica email/i.test(query);
+    const needsPurchaseInfo = /ricarica|pagamento|acquist|checkout|carrello|ordine|rautomatica|ricarica automatica|ricarica singola/i.test(query);
     const needsExamples = /esempio|example|come faccio|how do i|query per/i.test(query);
 
     if (needsFunnelInfo && this.knowledgeBase['business_funnels']) {
@@ -140,6 +147,10 @@ Dimensioni ad Alta Cardinalità:
 
     if (needsAuthInfo && this.knowledgeBase['business_authentication-flows']) {
       relevantDocs.push(this.knowledgeBase['business_authentication-flows']);
+    }
+
+    if (needsPurchaseInfo && this.knowledgeBase['business_purchase-processes']) {
+      relevantDocs.push(this.knowledgeBase['business_purchase-processes']);
     }
 
     if (needsExamples && this.knowledgeBase['business_example-queries']) {
@@ -152,8 +163,8 @@ Dimensioni ad Alta Cardinalità:
       relevantDocs.push(this.knowledgeBase['best_practices']);
     }
 
-    // Limita a 20000 caratteri per includere tutti i file di business logic
-    return relevantDocs.join('\n\n---\n\n').substring(0, 20000);
+    // Limita a 30000 caratteri per includere tutti i file di business logic senza troncature
+    return relevantDocs.join('\n\n---\n\n').substring(0, 30000);
   }
 
   /**

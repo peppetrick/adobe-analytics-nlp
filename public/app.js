@@ -300,16 +300,28 @@ async function sendQuery(inputElement) {
 
         console.log('Query response:', data);
 
-        if (data.needsClarification) {
-            // Show in chat if visible
+        if (data.type === 'info') {
+            // Risposta informativa sulla business logic — mostra in chat
+            if (mainContentWrapper.classList.contains('d-none')) {
+                reportContainer.classList.add('d-none');
+                mainContentWrapper.classList.remove('d-none');
+            }
+            addAssistantMessage(data.answer);
+        } else if (data.needsClarification) {
+            // Assicurati che la chat sia visibile
             if (!mainContentWrapper.classList.contains('d-none')) {
                 addAssistantMessage(data.message);
-                if (data.availableMetrics) {
-                    addSystemMessage('Metriche disponibili: ' + data.availableMetrics.join(', '));
+                if (data.options && data.options.length > 0) {
+                    addQuickReplyButtons(data.options);
                 }
             } else {
-                // Show alert if in report view
-                alert(data.message);
+                // Se siamo nella report view, torna alla chat
+                reportContainer.classList.add('d-none');
+                mainContentWrapper.classList.remove('d-none');
+                addAssistantMessage(data.message);
+                if (data.options && data.options.length > 0) {
+                    addQuickReplyButtons(data.options);
+                }
             }
         } else if (data.interpretation && data.data) {
             const { interpretation, data: reportData } = data;
@@ -380,9 +392,10 @@ function addUserMessage(text) {
 function addAssistantMessage(text) {
     const div = document.createElement('div');
     div.className = 'chat-message assistant-message mb-3';
+    const rendered = typeof marked !== 'undefined' ? marked.parse(text) : escapeHtml(text);
     div.innerHTML = `
         <div class="bg-light rounded p-3" style="max-width: 80%;">
-            ${escapeHtml(text)}
+            <div class="markdown-body">${rendered}</div>
         </div>
     `;
     chatContainer.appendChild(div);
@@ -422,6 +435,28 @@ function removeLoadingMessage(id) {
     if (el) el.remove();
 }
 
+function addQuickReplyButtons(options) {
+    const div = document.createElement('div');
+    div.className = 'quick-reply-buttons mb-3';
+
+    options.forEach(option => {
+        const btn = document.createElement('button');
+        btn.className = 'btn btn-outline-primary btn-sm quick-reply-btn';
+        btn.textContent = option;
+        btn.addEventListener('click', () => {
+            // Disabilita tutti i pulsanti del gruppo
+            div.querySelectorAll('button').forEach(b => b.disabled = true);
+            // Invia la risposta come query
+            queryInput.value = option;
+            handleSendQuery();
+        });
+        div.appendChild(btn);
+    });
+
+    chatContainer.appendChild(div);
+    scrollToBottom();
+}
+
 function scrollToBottom() {
     chatContainer.scrollTop = chatContainer.scrollHeight;
 }
@@ -441,6 +476,29 @@ function displayReport(interpretation, data, chartType = 'line') {
     const subtitle = `Periodo: ${formatDateRange(interpretation.dateRange)}`;
     document.getElementById('report-subtitle').textContent =
         interpretation.limit ? `${subtitle} (Top ${interpretation.limit})` : subtitle;
+
+    // Badge metadati: metrica, dimensione, periodo, id Adobe
+    const metaEl = document.getElementById('report-meta');
+    const metricLabel = interpretation.metric || '—';
+    const metricId = interpretation.metricIds
+        ? interpretation.metricIds.join(', ')
+        : (interpretation._metricId || '');
+    const dimLabel = interpretation.dimension && interpretation.dimension !== 'null' ? interpretation.dimension : '—';
+    metaEl.innerHTML = `
+        <span class="badge bg-blue-lt text-blue" title="Metrica">
+            <svg xmlns="http://www.w3.org/2000/svg" class="icon icon-sm me-1" width="16" height="16" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none"><path stroke="none" d="M0 0h24v24H0z" fill="none"/><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+            Metrica: <strong class="ms-1">${escapeHtml(metricLabel)}</strong>
+            ${metricId ? `<span class="ms-1 opacity-75 fw-normal">(${escapeHtml(metricId)})</span>` : ''}
+        </span>
+        <span class="badge bg-green-lt text-green" title="Dimensione">
+            <svg xmlns="http://www.w3.org/2000/svg" class="icon icon-sm me-1" width="16" height="16" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none"><path stroke="none" d="M0 0h24v24H0z" fill="none"/><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>
+            Dimensione: <strong class="ms-1">${escapeHtml(dimLabel)}</strong>
+        </span>
+        <span class="badge bg-purple-lt text-purple" title="Periodo">
+            <svg xmlns="http://www.w3.org/2000/svg" class="icon icon-sm me-1" width="16" height="16" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none"><path stroke="none" d="M0 0h24v24H0z" fill="none"/><rect x="4" y="5" width="16" height="16" rx="2"/><line x1="16" y1="3" x2="16" y2="7"/><line x1="8" y1="3" x2="8" y2="7"/><line x1="4" y1="11" x2="20" y2="11"/></svg>
+            Periodo: <strong class="ms-1">${escapeHtml(formatDateRange(interpretation.dateRange))}</strong>
+        </span>
+    `;
 
     // Rileva nomi metriche: se multi-metrica usa metricIds, altrimenti singola
     const metricNames = interpretation.metricIds
@@ -656,8 +714,9 @@ function updateHistoryUI() {
 
     let html = '';
     state.queryHistory.forEach((query, index) => {
+        const attrSafe = escapeHtml(query).replace(/"/g, '&quot;');
         html += `
-            <a href="#" class="list-group-item list-group-item-action history-query-item d-flex justify-content-between align-items-center" data-query="${escapeHtml(query)}">
+            <a href="#" class="list-group-item list-group-item-action history-query-item d-flex justify-content-between align-items-center" data-query="${attrSafe}">
                 <span class="text-truncate" style="max-width: 85%;">${escapeHtml(query)}</span>
                 <span class="badge bg-secondary">${index + 1}</span>
             </a>

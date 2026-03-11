@@ -33,6 +33,15 @@
 - **Valori**: "Carta Di Credito", "timfin","credito residuo"
 - **eventi associati**: order
 
+### eVar26 - taglio ricarica
+- **Descrizione**: taglio della ricarica selezionata nel processo di ricarica
+- **Persistenza**: Visita
+- **Allocazione**: Più recente
+- **Valori**: "10", "5","20"
+- **eventi associati**: order
+- **Query tipica**: per vedere la distribuzione dei tagli usare dimension=evar26 + filterDimension=variables/product + searchFilter="ricarica"
+- **metrica default**: `metrics/orders` — numero di ordini effettuati
+
 ### eVar30 - button name
 - **Descrizione**: nome del pulsante o link su cui ha cliccato l'utente
 - **Persistenza**: Visita
@@ -41,18 +50,20 @@
 - **eventi associati**: event32
 
 ### eVar56 - error code
-- **Descrizione**: codice di errore visualizzato in pagine o modali di errore
+- **Descrizione**: codice di errore visualizzato in pagine o modali di errore. Valori brevi, identificatori come "Generic_Error", "NetworkError", ecc.
 - **Persistenza**: Visita
 - **Allocazione**: Più recente
-- **Valori**: 
+- **Uso**: usare eVar56 quando l'utente specifica il codice/nome dell'errore (stringa corta, senza spazi o con underscore)
 - **eventi associati**: event56
+- **metrica default**: `metrics/event56` — quando si usa eVar56 come dimensione (o filterDimension), usare SEMPRE event56 come metrica, non pageviews
 
 ### eVar57 - error description
-- **Descrizione**: descrizione di errore visualizzato in pagine o modali di errore
+- **Descrizione**: descrizione testuale leggibile dell'errore. Valori lunghi, es. "Impossibile completare l'operazione. (Errore MyTIM.NetworkError 6)."
 - **Persistenza**: Visita
 - **Allocazione**: Più recente
-- **Valori**: 
+- **Uso**: usare eVar57 quando l'utente specifica il testo descrittivo/messaggio dell'errore (frase lunga)
 - **eventi associati**: event56
+- **metrica default**: `metrics/event56` — quando si usa eVar57 come dimensione (o filterDimension), usare SEMPRE event56 come metrica, non pageviews
 
 ### eVar34 - tipo di linea
 - **Descrizione**: tipo di linea associata alla linea selzionata in dashboard
@@ -191,6 +202,11 @@
 ### event48 - login KO con password memorizzata
 - **Tipo**: Contatore
 - **Descrizione**: login fallita utilizzando la password memorizzata
+- **Note**:
+
+### event56 - errore
+- **Tipo**: Contatore
+- **Descrizione**: errore su modale o pagina di errore durante login processi di acquisto e operazioni varie
 - **Note**:
 
 ### event83 - login OK con token memorizzato

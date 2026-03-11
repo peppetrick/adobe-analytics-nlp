@@ -177,7 +177,9 @@ class AdobeService {
     const metricId = rawData.columns?.metric?.[0]?.id || 'value';
     const dimensionName = this.extractDimensionName(request.dimension);
     
-    const isDateDimension = request.dimension === 'variables/daterangeday';
+    // Tutte le dimensioni temporali Adobe: day, hour, week, month
+    const isDateDimension = /variables\/daterange(day|hour|week|month)/.test(request.dimension);
+    const isHourDimension = request.dimension === 'variables/daterangehour';
 
     const formatted = rows.map(row => {
       const dataPoint = {
@@ -187,19 +189,32 @@ class AdobeService {
         metrics: row.data || []        // tutte le metriche
       };
 
-      // Se la dimensione è una data, formattala e conserva il valore raw per l'ordinamento
+      // Se la dimensione è temporale, formattala e conserva il raw per l'ordinamento
       if (isDateDimension) {
-        dataPoint.rawDate = row.value; // YYYYMMDD, usato per ordinamento
-        dataPoint.date = this.formatDate(row.value);
-        dataPoint.dimension = dataPoint.date;
+        dataPoint.rawDate = row.value; // usato per ordinamento lessicografico
+        dataPoint.dimension = isHourDimension
+          ? this.formatHour(row.value)
+          : this.formatDate(row.value);
       }
 
       return dataPoint;
     });
 
-    // Per dimensioni data, ordina cronologicamente (crescente)
+    // Per dimensioni temporali, ordina cronologicamente (crescente)
     if (isDateDimension) {
-      formatted.sort((a, b) => (a.rawDate || '').localeCompare(b.rawDate || ''));
+      // Adobe daterangehour restituisce "HH:MM YYYY-MM-DD" → va invertito in
+      // "YYYY-MM-DD HH:MM" per ordinare prima per data e poi per ora
+      const toSortKey = (raw) => {
+        if (!raw) return '';
+        const m = raw.match(/^(\d{1,2}:\d{2})\s+(\d{4}-\d{2}-\d{2})$/);
+        if (m) return `${m[2]} ${m[1].padStart(5, '0')}`;
+        return raw; // YYYYMMDD o altri formati già ordinabili lessicograficamente
+      };
+      formatted.sort((a, b) => {
+        const aKey = toSortKey(a.rawDate || '');
+        const bKey = toSortKey(b.rawDate || '');
+        return aKey < bKey ? -1 : aKey > bKey ? 1 : 0;
+      });
       formatted.forEach(d => delete d.rawDate);
     }
 
@@ -234,6 +249,157 @@ class AdobeService {
       day: 'numeric',
       year: 'numeric'
     });
+  }
+
+  /**
+   * Formatta un'ora da Adobe (formato YYYYMMDDHH)
+   * @param {string} hourStr - Ora in formato Adobe (10 cifre)
+   * @returns {string} Ora formattata
+   */
+  formatHour(hourStr) {
+    if (!hourStr) return hourStr;
+
+    // Adobe daterangehour formato: "HH:MM YYYY-MM-DD"
+    const m = hourStr.match(/^(\d{1,2}):(\d{2})\s+(\d{4})-(\d{2})-(\d{2})$/);
+    if (m) {
+      const date = new Date(parseInt(m[3]), parseInt(m[4]) - 1, parseInt(m[5]), parseInt(m[1]), parseInt(m[2]));
+      return date.toLocaleString('it-IT', {
+        month: 'short',
+        day:   'numeric',
+        hour:  '2-digit',
+        minute: '2-digit'
+      });
+    }
+
+    // Fallback: formato compatto YYYYMMDDHH (10 cifre)
+    if (hourStr.length === 10 && /^\d{10}$/.test(hourStr)) {
+      const date = new Date(
+        parseInt(hourStr.substring(0, 4)),
+        parseInt(hourStr.substring(4, 6)) - 1,
+        parseInt(hourStr.substring(6, 8)),
+        parseInt(hourStr.substring(8, 10))
+      );
+      return date.toLocaleString('it-IT', {
+        month: 'short',
+        day:   'numeric',
+        hour:  '2-digit',
+        minute: '2-digit'
+      });
+    }
+
+    return hourStr;
+  }
+
+  /**
+   * Ottiene un report grezzo (rows con itemId) da Adobe Analytics, senza formattazione.
+   * Utile come step preliminare per recuperare gli itemId delle dimensioni.
+   * @param {string} accessToken
+   * @param {object} reportRequest
+   * @returns {Promise<object>} - Risposta raw di Adobe (con rows[].itemId)
+   */
+  async getRawReport(accessToken, reportRequest) {
+    if (reportRequest.globalFilters?.[0]?.dateRange) {
+      const dateRangeStr = reportRequest.globalFilters[0].dateRange;
+      reportRequest.globalFilters[0].dateRange = this.parseDateRange(dateRangeStr);
+    }
+
+    const response = await axios.post(
+      `${this.baseUrl}/${this.companyId}/reports`,
+      reportRequest,
+      {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'x-api-key': process.env.ADOBE_CLIENT_ID,
+          'Content-Type': 'application/json'
+        },
+        timeout: 30000
+      }
+    );
+
+    return response.data;
+  }
+
+  /**
+   * Crea un segmento temporaneo tramite Adobe Analytics Segments API.
+   * Restituisce il segmentId da usare nelle report requests.
+   * @param {string} accessToken
+   * @param {string} rsid - Report suite ID
+   * @param {string} name - Nome del segmento
+   * @param {object} definition - Definizione del segmento (formato Adobe)
+   * @returns {Promise<string>} segmentId
+   */
+  async createTempSegment(accessToken, rsid, name, definition) {
+    const response = await axios.post(
+      `${this.baseUrl}/${this.companyId}/segments`,
+      { name, rsid, definition },
+      {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'x-api-key': process.env.ADOBE_CLIENT_ID,
+          'Content-Type': 'application/json'
+        },
+        timeout: 30000
+      }
+    );
+    console.log('Created temp segment:', response.data.id, '→', name);
+    return response.data.id;
+  }
+
+  /**
+   * Cerca segmenti predefiniti per nome (es. "iOS", "Android").
+   * Restituisce array di { id, name } ordinati per rilevanza.
+   * @param {string} accessToken
+   * @param {string} searchName - keyword da cercare nel nome del segmento
+   * @param {string} rsid - Report suite ID (opzionale, migliora la ricerca)
+   * @returns {Promise<Array<{id: string, name: string}>>}
+   */
+  async searchSegments(accessToken, searchName, rsid) {
+    // includeType=all come stringa ripetuta (Adobe non accetta array JSON)
+    const params = new URLSearchParams();
+    params.append('name', searchName);
+    params.append('limit', '20');
+    params.append('page', '0');
+    params.append('includeType', 'all');
+    if (rsid) params.append('rsids', rsid);
+
+    const response = await axios.get(
+      `${this.baseUrl}/${this.companyId}/segments?${params.toString()}`,
+      {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'x-api-key': process.env.ADOBE_CLIENT_ID
+        },
+        timeout: 15000
+      }
+    );
+    console.log('Segments API raw response keys:', Object.keys(response.data || {}));
+    const items = response.data?.content || response.data?.segments || response.data || [];
+    const list = (Array.isArray(items) ? items : []).map(s => ({ id: s.id, name: s.name }));
+    console.log('Segments found:', list.map(s => `${s.name} (${s.id})`));
+    return list;
+  }
+
+  /**
+   * Cancella un segmento tramite Adobe Analytics Segments API.
+   * @param {string} accessToken
+   * @param {string} segmentId
+   */
+  async deleteSegment(accessToken, segmentId) {
+    try {
+      await axios.delete(
+        `${this.baseUrl}/${this.companyId}/segments/${segmentId}`,
+        {
+          headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'x-api-key': process.env.ADOBE_CLIENT_ID
+          },
+          timeout: 10000
+        }
+      );
+      console.log('Deleted temp segment:', segmentId);
+    } catch (err) {
+      console.warn('Could not delete temp segment', segmentId, ':', err.message);
+    }
   }
 
   /**

@@ -227,3 +227,36 @@ label[for="config-file"] {
     padding-bottom: 2rem;
     min-height: calc(100vh - 60px);
 }
+
+/* Quick Reply Buttons */
+.quick-reply-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding-left: 4px;
+    animation: slideIn 0.3s ease-out;
+}
+
+.quick-reply-btn {
+    border-radius: 20px;
+    font-size: 0.82rem;
+    transition: all 0.15s ease;
+}
+
+.quick-reply-btn:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 3px 8px rgba(32, 107, 196, 0.25);
+}
+
+.quick-reply-btn:disabled {
+    opacity: 0.5;
+}
+
+/* Markdown rendering in chat */
+.markdown-body { font-size: 0.9rem; line-height: 1.6; }
+.markdown-body p { margin-bottom: 0.5rem; }
+.markdown-body p:last-child { margin-bottom: 0; }
+.markdown-body ul, .markdown-body ol { padding-left: 1.4rem; margin-bottom: 0.5rem; }
+.markdown-body li { margin-bottom: 0.2rem; }
+.markdown-body strong { font-weight: 600; }
+.markdown-body code { background: #e9ecef; padding: 1px 4px; border-radius: 3px; font-size: 0.85em; }

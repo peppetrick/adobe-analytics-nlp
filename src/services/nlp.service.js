@@ -21,6 +21,10 @@ class NLPService {
   }
 
   async interpretQuery(query) {
+    return this.interpretWithHistory(query, []);
+  }
+
+  async interpretWithHistory(query, conversationHistory = [], lastContext = null) {
     if (this.useLocal) {
       try {
         return await this.interpretWithOllama(query);
@@ -31,7 +35,7 @@ class NLPService {
       }
     } else if (this.apiKey && this.apiKey !== 'your_anthropic_api_key_here') {
       try {
-        return await this.interpretWithClaude(query);
+        return await this.interpretWithClaudeMultiTurn(query, conversationHistory, lastContext);
       } catch (error) {
         console.error('Claude API error:', error.response?.data || error.message);
         console.log('Falling back to pattern matching...');
@@ -44,7 +48,7 @@ class NLPService {
   }
 
   async interpretWithOllama(query) {
-    const prompt = this.buildPrompt(query);
+    const prompt = this.buildSystemPrompt(query);
 
     console.log('🤖 Calling Ollama...');
 
@@ -85,17 +89,26 @@ class NLPService {
   }
 
   async interpretWithClaude(query) {
-    const prompt = this.buildPrompt(query);
+    return this.interpretWithClaudeMultiTurn(query, []);
+  }
+
+  async interpretWithClaudeMultiTurn(query, conversationHistory = [], lastContext = null) {
+    const systemPrompt = this.buildSystemPrompt(query, lastContext);
+
+    // Costruisci messages: history pregressa + query corrente
+    const messages = [
+      ...conversationHistory.map(h => ({ role: h.role, content: h.content })),
+      { role: 'user', content: query }
+    ];
 
     const response = await axios.post(
       'https://api.anthropic.com/v1/messages',
       {
         model: this.claudeModel,
         max_tokens: 1000,
-        messages: [{
-          role: 'user',
-          content: prompt
-        }]
+        temperature: 0,
+        system: systemPrompt,
+        messages
       },
       {
         headers: {
@@ -103,7 +116,7 @@ class NLPService {
           'anthropic-version': '2023-06-01',
           'content-type': 'application/json'
         },
-        timeout: 10000
+        timeout: 15000
       }
     );
 
@@ -121,76 +134,117 @@ class NLPService {
 
     console.log('Claude response (cleaned):', text);
 
-    const interpretation = JSON.parse(text);
-    return this.validateInterpretation(interpretation);
+    const result = JSON.parse(text);
+    const validated = this.validateInterpretation(result);
+    return this.applyDeterministicOverrides(validated, query);
   }
 
-  buildPrompt(query) {
-    const basePrompt = `You are an Adobe Analytics query interpreter. Analyze the user's natural language query and identify:
+  applyDeterministicOverrides(interpretation, query) {
+    if (interpretation.needsClarification || interpretation.type === 'info') return interpretation;
 
-1. **metric**: The metric they want to analyze (REQUIRED)
-2. **dimension**: The dimension to break down by (OPTIONAL - only if explicitly mentioned)
-3. **dateRange**: The time period to analyze
+    const timeGranularity = this.detectTimeGranularity(query);
+    if (timeGranularity) {
+      if (!interpretation.dimension || !['variables/daterangehour','variables/daterangeday','variables/daterangeweek','variables/daterangemonth'].includes(interpretation.dimension?.id)) {
+        console.log(`⚡ Deterministic override: dimension → ${timeGranularity.id} (matched in query)`);
+        interpretation.dimension = timeGranularity;
+      } else if (interpretation.dimension.id !== timeGranularity.id) {
+        console.log(`⚡ Deterministic override: dimension ${interpretation.dimension.id} → ${timeGranularity.id} (query keyword wins)`);
+        interpretation.dimension = timeGranularity;
+      }
+    }
 
-METRICS - Use Adobe Analytics format:
-- Standard metrics: "metrics/visits", "metrics/pageviews", "metrics/orders", "metrics/revenue", "metrics/units"
-- Custom events: "metrics/event1", "metrics/event2", etc. (check business logic documentation for meaning)
+    return interpretation;
+  }
 
-DIMENSIONS - Use Adobe Analytics format:
-- Standard dimensions: "variables/page", "variables/product"
-- Custom eVars: "variables/evar1", "variables/evar2", "variables/evar126", etc.
-- Custom props: "variables/prop1", "variables/prop2", etc.
-- Time dimensions: "variables/daterangehour", "variables/daterangeday", "variables/daterangeweek", "variables/daterangemonth"
+  buildSystemPrompt(query, lastContext = null) {
+    const basePrompt = `You are an Adobe Analytics query interpreter for an Italian telecom company. Your job is to analyze natural language queries and map them to Adobe Analytics metrics and dimensions.
 
-IMPORTANT: Use the business logic documentation below to map business terms to Adobe Analytics IDs.
-Example mappings:
-- "registrazioni" → metrics/event1
-- "prodotto" → variables/evar1
-- "canale marketing" → variables/evar2
-- "aggiunta al carrello" → metrics/event10
+You MUST respond with ONLY a JSON object — no markdown, no explanations.
 
-Valid dateRange values:
-- "today", "yesterday"
-- "last7days", "last30days", "last90days"
-- "lastXdays" where X is any number (e.g., "last2days", "last5days")
+## Three possible response formats:
 
-User Query: "${query}"
+### 1. If the query is clear and unambiguous → return interpretation:
+Single metric:   {"metric": {"id": "metrics/...", "name": "..."}, "dimension": {"id": "variables/...", "name": "..."} or null, "dateRange": "last30days", "chartType": null, "limit": null, "searchFilter": null, "stepOrder": null}
+Multiple metrics: {"metric": [{"id": "metrics/event83", "name": "..."}, {"id": "metrics/event84", "name": "..."}], "dimension": null, "dateRange": "last7days", "chartType": "line", "limit": null, "searchFilter": null, "stepOrder": null}
+searchFilter: string or array of strings to filter dimension values. Three modes depending on query type:
+- FUNNEL/STEP queries (stepOrder is also set): use FULL pagenames WITH colons as-is, e.g. ["MYTIM:Ricarica:ricarica singola:ricarica singola", "MYTIM:Ricarica:ricarica OK:ricarica OK"]. Do NOT truncate — the backend uses MATCH (regex) which handles colons correctly.
+- TIME DIMENSION queries (dimension=daterangehour/day/week/month AND filterDimension is set): use FULL pagenames WITH colons as-is, e.g. "MYTIM:Offerte disponibili:Offerte:Offerte disponibili". The backend uses MATCH (exact regex) for the lookup step and handles colons correctly.
+- All other queries (non-temporal dimension, no stepOrder): use only the LAST segment after the last ':' because colons break CONTAINS, e.g. "MYTIM:section:page" → use "page". Set to null if no filter needed.
+filterDimension: REQUIRED when dimension is temporal (daterangeday/hour/week/month) AND searchFilter is set. Also REQUIRED when filtering on a different dimension than the primary. Specifies which dimension ID to filter on. Examples: "variables/evar5" for pagename/page filters; "variables/evar56" for error CODE filters (short identifiers like "Generic_Error", "NetworkError" — no spaces, often with underscore); "variables/evar57" for error DESCRIPTION filters (long human-readable messages like "Impossibile completare..."). Set to null when no cross-dimension filter is needed.
+stepOrder: REQUIRED when the query asks for "all steps" or "funnel" of a process. Array of strings in the CORRECT sequential order of the funnel steps (same values as searchFilter but ordered). Used to sort results in step order instead of metric value order. Set to null when not a funnel query.
+segmentId: Adobe Analytics segment ID to apply globally to the report. Look up the correct ID in the segments.md documentation provided above. Use ONLY IDs listed there — do NOT invent IDs. Set to null if no segment is requested or if the requested segment is not in the list.
+previousPageFilter: Use ONLY when user asks which pages come AFTER page X in the navigation flow (e.g. "pagine che seguono", "pagine successive a", "flusso di navigazione dopo", "dopo la pagina"). Set to the EXACT full pagename keeping all colons (e.g. "MYTIM:Ricarica:ricarica singola:ricarica singola"). When previousPageFilter is set: dimension MUST be variables/evar5, searchFilter MUST be null, filterDimension MUST be null. Set to null for any other query type.
 
-RULES:
-1. Use business logic documentation to find the correct metric/dimension IDs
-2. Be flexible with Italian language variations (visits = visite, ordini = orders)
-3. If no dimension is mentioned, set dimension to null
-4. Use "last30days" as default dateRange if not specified
-5. For time breakdowns (orario, giornaliero, etc.), use time dimensions
+### 2. If the query is ambiguous (multiple possible metrics/dimensions match) → ask for clarification:
+{"needsClarification": true, "question": "Domanda breve in italiano?", "options": ["Opzione A (eventXX)", "Opzione B (eventYY)", "Opzione C (eventZZ)"]}
 
-CHART TYPE (OPTIONAL):
-- "pie" for pie charts (torta, pizza, cerchio)
-- "bar" for bar charts (barre, colonne, istogramma)
-- "line" for line charts (linea, andamento, trend)
-- "doughnut" for doughnut charts (ciambella)
-- If not specified, set to null (will be auto-determined)
+### 3. If the query is a question about business logic (NOT a report request) → answer directly:
+{"type": "info", "answer": "Risposta chiara e concisa in italiano basata sulla documentazione di business logic"}
+Use format 3 for questions like: "cosa misura event47?", "quali pagine fanno parte del processo di registrazione?", "qual è la differenza tra event44 e event48?", "come funziona il processo di login?", "cosa sono le iniziative?", ecc.
 
-LIMIT (OPTIONAL):
-- Extract number if user specifies "prime 5", "top 10", "primi 20", "bastano le prime 5", etc.
-- If not specified, set to null (default will be used)
+## When to ask for clarification:
+- The user mentions a business term that maps to 2+ different events (e.g. "login KO" → event47, event48, event84)
+- The user mentions a dimension that could be multiple eVars
+- NEVER ask if the query is already explicit (e.g. "event83", "login KO con token")
 
-CRITICAL: Respond with ONLY the JSON object, NO markdown, NO explanations.
-Single metric:  {"metric": {"id": "metrics/...", "name": "..."}, "dimension": {"id": "variables/...", "name": "..."}, "dateRange": "last30days", "chartType": "pie", "limit": 5}
-Multiple metrics: {"metric": [{"id": "metrics/event44", "name": "..."}, {"id": "metrics/event48", "name": "..."}], "dimension": null, "dateRange": "last7days", "chartType": "line", "limit": null}`;
+## Adobe Analytics format:
+- Metrics: "metrics/visits", "metrics/visitors" (unique visitors), "metrics/pageviews", "metrics/orders", "metrics/revenue", "metrics/event1", etc.
+- NOTE: use "metrics/visitors" for unique visitors (NOT "metrics/uniquevisitors")
+- Dimensions: "variables/page", "variables/evar1", "variables/daterangeday", "variables/daterangehour", "variables/daterangeweek", "variables/daterangemonth", etc.
+- Pagename dimension: variables/evar5 (copia del pagename, usala per "pagename", "pagine", "pages", "schermata")
+- Time granularity: CRITICAL — these exact phrases ALWAYS mean hourly regardless of the date range in the query:
+  - "orario", "ogni ora", "dettaglio orario", "profilo orario", "breakdown orario", "per ora", "hourly" → variables/daterangehour
+  - "giornaliero", "dettaglio giornaliero", "daily", "ogni giorno" → variables/daterangeday
+  - "settimanale", "weekly", "ogni settimana" → variables/daterangeweek
+  - "mensile", "monthly", "ogni mese" → variables/daterangemonth
+  - NOTE: "ultimi 2 giorni con dettaglio orario" means dateRange=last2days + dimension=daterangehour (NOT daterangeday). The date range and time granularity are INDEPENDENT.
+- dateRange: "today", "yesterday", "last7days", "last30days", "last90days", "lastXdays"
+- chartType: "pie", "bar", "line", "doughnut", or null (auto)
+- limit: number or null
+- searchFilter: keyword string to filter dimension values with CONTAINS, or null
+
+## Rules:
+1. Use the business logic documentation to map Italian terms to Adobe Analytics IDs
+2. If the conversation history shows a previous clarification question, use the user's answer to resolve it
+3. Default dateRange: "last30days"
+4. If no dimension mentioned: dimension = null
+5. When the user asks about "pagine/pagename di un processo", use dimension=variables/evar5 and set searchFilter to the SPECIFIC pattern from the business logic docs to avoid matching unrelated pages (es. for registration process use "registrazione:crea account" NOT just "registrazione")
+6. FUNNEL RULE (CRITICAL): When the query asks for steps/funnel/processo of a known process (e.g. "step del processo di registrazione", "andamento degli step del processo"), you MUST set BOTH searchFilter AND stepOrder to the specific array from funnels.md — even if the dimension is temporal (daterangeday, etc.). NEVER set searchFilter=null for a funnel/step query. Example for registration: searchFilter=["inserimento user e password","inserimento linea","inserimento codice otp sms","account registrato"], stepOrder=same array
+7. DEFAULT METRIC BY DIMENSION: some dimensions have a natural default metric — always use it when no metric is explicitly specified: eVar56 (error code) → metrics/event56; eVar57 (error description) → metrics/event56. Never use metrics/pageviews when the dimension is eVar56 or eVar57.
+8. NEXT PAGE FLOW: when user asks which pages follow/come after a specific page in navigation ("pagine che seguono", "pagine successive", "flusso di navigazione dopo", "dopo la pagina X"), set previousPageFilter to the exact full pagename with all colons intact. Do NOT use searchFilter in this case. dimension=variables/evar5, metric=metrics/pageviews (unless specified otherwise).`;
+
+    // Aggiungi contesto follow-up se disponibile
+    let prompt = basePrompt;
+    if (lastContext) {
+      prompt += `
+
+## PREVIOUS QUERY CONTEXT (for follow-up support)
+Previous user query: "${lastContext.query}"
+Previous interpretation:
+${JSON.stringify(lastContext.interpretation, null, 2)}
+
+FOLLOW-UP RULE: If the current query is a refinement or continuation of the previous one (e.g. "e con dettaglio orario", "mostrami solo ieri", "aggiungi anche X", "stesso report ma per l'ultimo mese", "e per gli errori?"), inherit ALL unspecified fields from the previous interpretation above, and only override the fields explicitly changed by the new query. Return a complete valid interpretation JSON.`;
+    }
 
     // Arricchisci con documentazione RAG (business logic)
-    return ragService.enrichPrompt(basePrompt, query);
+    return ragService.enrichPrompt(prompt, query);
   }
 
   validateInterpretation(interpretation) {
+    // Passa info e clarification senza validazione
+    if (interpretation.needsClarification === true) return interpretation;
+    if (interpretation.type === 'info') return interpretation;
+
     // Valida solo il formato dei dati, non più la configurazione
 
-    // Normalizza metric: accetta sia oggetto singolo che array
+    // Normalizza metric: accetta sia oggetto singolo che array, anche stringhe bare ("metrics/pageviews")
     if (interpretation.metric) {
       const metrics = Array.isArray(interpretation.metric)
         ? interpretation.metric
         : [interpretation.metric];
-      interpretation.metric = metrics.filter(m => m && m.id);
+      interpretation.metric = metrics
+        .map(m => typeof m === 'string' ? { id: m, name: m.split('/').pop() } : m)
+        .filter(m => m && m.id);
       if (interpretation.metric.length === 0) interpretation.metric = null;
     }
 
@@ -223,6 +277,13 @@ Multiple metrics: {"metric": [{"id": "metrics/event44", "name": "..."}, {"id": "
       }
     }
 
+    // Valida stepOrder: deve essere un array di stringhe non vuote
+    if (interpretation.stepOrder) {
+      if (!Array.isArray(interpretation.stepOrder) || interpretation.stepOrder.length === 0) {
+        interpretation.stepOrder = null;
+      }
+    }
+
     // Se non specificato, rileva da fallback
     if (!interpretation.chartType) {
       interpretation.chartType = this.detectChartType(''); // Sarà null
@@ -242,7 +303,7 @@ Multiple metrics: {"metric": [{"id": "metrics/event44", "name": "..."}, {"id": "
     const timeKeywords = [
       {
         // Hour - keywords molto specifiche per evitare conflitti
-        keywords: ['dettaglio orario', 'breakdown orario', 'orario', 'oraria', 'hourly', 'ogni ora', 'per ora', 'hour by hour'],
+        keywords: ['dettaglio orario', 'profilo orario', 'breakdown orario', 'orario', 'oraria', 'hourly', 'ogni ora', 'per ora', 'hour by hour'],
         dimension: { id: 'variables/daterangehour', name: 'Hour' }
       },
       {
@@ -300,8 +361,6 @@ Multiple metrics: {"metric": [{"id": "metrics/event44", "name": "..."}, {"id": "
   }
 
   detectLimit(query) {
-    const lowerQuery = query.toLowerCase();
-
     // Pattern per estrarre il limite di risultati
     const limitPatterns = [
       /prim[aei]\s+(\d+)/i,          // "prime 5", "primi 10"
@@ -431,7 +490,7 @@ Multiple metrics: {"metric": [{"id": "metrics/event44", "name": "..."}, {"id": "
       limit
     });
 
-    return { metric, dimension, dateRange, chartType, limit };
+    return this.validateInterpretation({ metric, dimension, dateRange, chartType, limit });
   }
 }
 

@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Adobe Analytics NLP — Architettura</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    background: #0f172a;
+    color: #e2e8f0;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+  }
+
+  .slide {
+    width: 1200px;
+    max-width: 100%;
+    background: #1e293b;
+    border-radius: 16px;
+    padding: 40px 48px 48px;
+    box-shadow: 0 25px 60px rgba(0,0,0,0.5);
+  }
+
+  .slide-header {
+    margin-bottom: 36px;
+    text-align: center;
+  }
+
+  .slide-header h1 {
+    font-size: 26px;
+    font-weight: 700;
+    color: #f1f5f9;
+    letter-spacing: -0.5px;
+  }
+
+  .slide-header p {
+    font-size: 14px;
+    color: #64748b;
+    margin-top: 6px;
+  }
+
+  /* ── LAYOUT ── */
+  .arch {
+    display: grid;
+    grid-template-columns: 220px 1fr 220px;
+    grid-template-rows: auto;
+    gap: 0;
+    align-items: center;
+  }
+
+  /* ── BOXES ── */
+  .box {
+    border-radius: 12px;
+    padding: 14px 16px;
+    border: 1px solid;
+    position: relative;
+  }
+
+  .box-title {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+    margin-bottom: 4px;
+  }
+
+  .box-name {
+    font-size: 15px;
+    font-weight: 600;
+    line-height: 1.2;
+  }
+
+  .box-sub {
+    font-size: 11px;
+    margin-top: 5px;
+    line-height: 1.5;
+    opacity: 0.75;
+  }
+
+  /* colors */
+  .c-browser  { background: #1a3a5c; border-color: #3b82f6; }
+  .c-browser .box-title  { color: #60a5fa; }
+
+  .c-backend  { background: #1a3d2e; border-color: #22c55e; }
+  .c-backend .box-title  { color: #4ade80; }
+
+  .c-ai       { background: #3b2244; border-color: #a855f7; }
+  .c-ai .box-title  { color: #c084fc; }
+
+  .c-adobe    { background: #3d1a1a; border-color: #ef4444; }
+  .c-adobe .box-title  { color: #f87171; }
+
+  .c-rag      { background: #2d2a14; border-color: #eab308; }
+  .c-rag .box-title  { color: #facc15; }
+
+  .c-redis    { background: #1a2a3d; border-color: #38bdf8; }
+  .c-redis .box-title { color: #7dd3fc; }
+
+  /* ── CENTER COLUMN ── */
+  .center-col {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    padding: 0 32px;
+  }
+
+  .center-row {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+  }
+
+  .center-row .box {
+    flex: 1;
+  }
+
+  /* ── ARROWS ── */
+  .arrow-h {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #475569;
+    font-size: 20px;
+    padding: 0 8px;
+    flex-shrink: 0;
+  }
+
+  .arrow-label {
+    font-size: 10px;
+    color: #475569;
+    text-align: center;
+    margin: 2px 0;
+    letter-spacing: 0.3px;
+  }
+
+  .flow-row {
+    display: flex;
+    align-items: center;
+  }
+
+  .flow-arrow {
+    flex: 0 0 auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 0 10px;
+  }
+
+  .flow-arrow span {
+    font-size: 18px;
+    color: #475569;
+    line-height: 1;
+  }
+
+  .flow-arrow small {
+    font-size: 9px;
+    color: #475569;
+    white-space: nowrap;
+  }
+
+  /* vertical separator in center */
+  .vsep {
+    width: 2px;
+    background: #334155;
+    border-radius: 2px;
+    align-self: stretch;
+    margin: 0 auto;
+  }
+
+  /* ── LEFT/RIGHT columns ── */
+  .left-col, .right-col {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  /* ── LEGEND ── */
+  .legend {
+    margin-top: 32px;
+    padding-top: 24px;
+    border-top: 1px solid #334155;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20px;
+    justify-content: center;
+  }
+
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: #94a3b8;
+  }
+
+  .legend-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 3px;
+  }
+
+  /* ── STEP BADGES ── */
+  .step-badge {
+    display: inline-block;
+    background: #334155;
+    border-radius: 20px;
+    padding: 2px 8px;
+    font-size: 10px;
+    color: #94a3b8;
+    font-weight: 600;
+    margin-right: 4px;
+  }
+
+  /* ── FLOW NUMBERS ── */
+  .flow-steps {
+    display: flex;
+    justify-content: center;
+    gap: 0;
+    margin-bottom: 28px;
+    position: relative;
+  }
+
+  .flow-step {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    flex: 1;
+    position: relative;
+  }
+
+  .flow-step::after {
+    content: '→';
+    position: absolute;
+    right: -4px;
+    top: 11px;
+    color: #475569;
+    font-size: 14px;
+    z-index: 1;
+  }
+
+  .flow-step:last-child::after { display: none; }
+
+  .step-num {
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: #334155;
+    color: #94a3b8;
+    font-size: 12px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 4px;
+  }
+
+  .step-label {
+    font-size: 10px;
+    color: #64748b;
+    text-align: center;
+    max-width: 90px;
+    line-height: 1.3;
+  }
+</style>
+</head>
+<body>
+<div class="slide">
+
+  <!-- HEADER -->
+  <div class="slide-header">
+    <h1>Adobe Analytics NLP — Architettura del Sistema</h1>
+    <p>Conversione di linguaggio naturale in query Adobe Analytics tramite Claude AI</p>
+  </div>
+
+  <!-- FLUSSO DATI (top summary) -->
+  <div class="flow-steps">
+    <div class="flow-step">
+      <div class="step-num">1</div>
+      <div class="step-label">Query in italiano</div>
+    </div>
+    <div class="flow-step">
+      <div class="step-num">2</div>
+      <div class="step-label">RAG arricchisce il contesto</div>
+    </div>
+    <div class="flow-step">
+      <div class="step-num">3</div>
+      <div class="step-label">Claude interpreta</div>
+    </div>
+    <div class="flow-step">
+      <div class="step-num">4</div>
+      <div class="step-label">Build Adobe request</div>
+    </div>
+    <div class="flow-step">
+      <div class="step-num">5</div>
+      <div class="step-label">Dati da Adobe Analytics</div>
+    </div>
+    <div class="flow-step">
+      <div class="step-num">6</div>
+      <div class="step-label">Chart &amp; tabella</div>
+    </div>
+  </div>
+
+  <!-- MAIN ARCHITECTURE -->
+  <div class="arch">
+
+    <!-- LEFT: Frontend -->
+    <div class="left-col">
+      <div class="box c-browser">
+        <div class="box-title">Frontend</div>
+        <div class="box-name">Browser</div>
+        <div class="box-sub">
+          Tabler CSS · Chart.js · marked.js<br>
+          Chat UI · Grafici · Tabelle
+        </div>
+      </div>
+
+      <div class="box c-redis">
+        <div class="box-title">Session Store</div>
+        <div class="box-name">Redis</div>
+        <div class="box-sub">
+          Sessioni utente<br>
+          Cache token OAuth<br>
+          CSRF protection
+        </div>
+      </div>
+    </div>
+
+    <!-- CENTER: Backend services -->
+    <div class="center-col">
+
+      <!-- Express row -->
+      <div class="center-row">
+        <div class="box c-backend" style="flex: none; width: 100%;">
+          <div class="box-title">Backend · Node.js / Express · HTTPS :8011</div>
+          <div style="display:flex; gap:10px; margin-top:8px;">
+            <div style="flex:1; background:#0f2d1e; border-radius:8px; padding:10px;">
+              <div style="font-size:11px; font-weight:700; color:#4ade80; margin-bottom:3px;">query.routes.js</div>
+              <div style="font-size:11px; color:#a7f3d0; line-height:1.5;">
+                Route orchestration<br>
+                Adobe request builder<br>
+                metricFilters · MATCH/CONTAINS<br>
+                next-page flow · funnel steps<br>
+                Temp segment lifecycle
+              </div>
+            </div>
+            <div style="flex:1; background:#0f2d1e; border-radius:8px; padding:10px;">
+              <div style="font-size:11px; font-weight:700; color:#4ade80; margin-bottom:3px;">adobe.service.js</div>
+              <div style="font-size:11px; color:#a7f3d0; line-height:1.5;">
+                POST /reports<br>
+                POST/DELETE /segments<br>
+                Date range parsing<br>
+                Response formatting
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- RAG + NLP row -->
+      <div class="center-row">
+        <div class="box c-rag">
+          <div class="box-title">RAG Service</div>
+          <div class="box-name">rag.service.js</div>
+          <div class="box-sub">
+            Keyword routing<br>
+            Iniezione selettiva docs<br>
+            Caricamento a startup
+          </div>
+        </div>
+        <div class="box c-ai">
+          <div class="box-title">NLP Service</div>
+          <div class="box-name">nlp.service.js</div>
+          <div class="box-sub">
+            System prompt<br>
+            Claude API call<br>
+            JSON validation
+          </div>
+        </div>
+      </div>
+
+      <!-- Docs row -->
+      <div style="background:#1c1c0e; border: 1px solid #713f12; border-radius:10px; padding:12px;">
+        <div style="font-size:11px; font-weight:700; color:#fde68a; margin-bottom:8px; letter-spacing:0.8px; text-transform:uppercase;">Business Logic Docs (auto-caricati da RAG)</div>
+        <div style="display:flex; flex-wrap:wrap; gap:6px;">
+          <span style="background:#292408; border:1px solid #854d0e; border-radius:6px; padding:3px 8px; font-size:11px; color:#fcd34d;">custom-variables.md</span>
+          <span style="background:#292408; border:1px solid #854d0e; border-radius:6px; padding:3px 8px; font-size:11px; color:#fcd34d;">funnels.md</span>
+          <span style="background:#292408; border:1px solid #854d0e; border-radius:6px; padding:3px 8px; font-size:11px; color:#fcd34d;">authentication-flows.md</span>
+          <span style="background:#292408; border:1px solid #854d0e; border-radius:6px; padding:3px 8px; font-size:11px; color:#fcd34d;">purchase-processes.md</span>
+          <span style="background:#292408; border:1px solid #854d0e; border-radius:6px; padding:3px 8px; font-size:11px; color:#fcd34d;">example-queries.md</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT: External APIs -->
+    <div class="right-col">
+      <div class="box c-adobe">
+        <div class="box-title">Adobe Analytics</div>
+        <div class="box-name">Analytics API 2.0</div>
+        <div class="box-sub">
+          /reports<br>
+          /segments<br>
+          OAuth 2.0
+        </div>
+      </div>
+
+      <div class="box c-ai" style="border-color:#7c3aed; background:#1e1133;">
+        <div class="box-title" style="color:#a78bfa;">Anthropic</div>
+        <div class="box-name">Claude Sonnet</div>
+        <div class="box-sub">
+          Interpretazione NL<br>
+          JSON strutturato<br>
+          Conversation history
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- LEGEND -->
+  <div class="legend">
+    <div class="legend-item">
+      <div class="legend-dot" style="background:#3b82f6;"></div> Frontend
+    </div>
+    <div class="legend-item">
+      <div class="legend-dot" style="background:#22c55e;"></div> Backend Node.js
+    </div>
+    <div class="legend-item">
+      <div class="legend-dot" style="background:#eab308;"></div> RAG / Docs
+    </div>
+    <div class="legend-item">
+      <div class="legend-dot" style="background:#a855f7;"></div> AI (Claude)
+    </div>
+    <div class="legend-item">
+      <div class="legend-dot" style="background:#ef4444;"></div> Adobe Analytics API
+    </div>
+    <div class="legend-item">
+      <div class="legend-dot" style="background:#38bdf8;"></div> Redis
+    </div>
+  </div>
+
+</div>
+</body>
+</html>
